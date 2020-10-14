@@ -1,2 +1,2 @@
-# shaderGP
+# ShaderGP
 Shader genérico
