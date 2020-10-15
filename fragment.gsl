@@ -1,0 +1,334 @@
+#version 120
+
+#define light5 //comment for raspberry
+
+const int LIGHT_DISABLE = 0;
+const int LIGHT_POINT = 1;
+const int LIGHT_DIR = 2;
+
+uniform int useColorTexture;
+uniform int useNormalTexture;
+uniform int useRoughnessTexture;
+uniform int useMetalnessTexture;
+uniform sampler2D colorMap;
+uniform sampler2D normalMap;
+uniform sampler2D roughnessMap;
+uniform sampler2D metalnessMap;
+
+uniform int light1Type = LIGHT_DISABLE;
+uniform vec3 light1Color= vec3 ( 1.0, 1.0, 1.0);
+uniform float light1Brightness = 1;
+
+uniform int light2Type = LIGHT_DISABLE;
+uniform vec3 light2Color= vec3 ( 1.0, 1.0, 1.0);
+uniform float light2Brightness = 1;
+
+uniform int light3Type = LIGHT_DISABLE;
+uniform vec3 light3Color= vec3 ( 1.0, 1.0, 1.0);
+uniform float light3Brightness = 1;
+
+uniform int light4Type = LIGHT_DISABLE;
+uniform vec3 light4Color= vec3 ( 1.0, 1.0, 1.0);
+uniform float light4Brightness = 1;
+
+uniform int light5Type = LIGHT_DISABLE;
+uniform vec3 light5Color= vec3 ( 1.0, 1.0, 1.0);
+uniform float light5Brightness = 1;
+
+
+//uniform float gamma;
+float gamma=2.2;
+//uniform float exposure;
+float exposure=1;
+//uniform float useNDotL;
+float useNDotL=1;
+
+//in vec4 worldSpaceVert;
+varying vec3 eyeSpaceVert;
+varying vec3 light1LocalPointDir;
+varying vec3 light2LocalPointDir;
+varying vec3 light3LocalPointDir;
+varying vec3 light4LocalPointDir;
+varying vec3 light5LocalPointDir;
+varying vec3 normalLocal;
+
+//out vec4 fragColor;
+
+uniform vec3 materialBaseColor = vec3 (.82, .67, .16);
+uniform float materialMetallic = 0.0;
+uniform float materialSubsurface = 0;
+uniform float materialSpecular = 0.0;
+uniform float materialRoughness = 0;
+uniform float materialSpecularTint = 0;
+uniform float materialAnisotropic = 0;
+uniform float materialSheen = 0;
+uniform float materialSheenTint = .5;
+uniform float materialClearcoat = 0;
+uniform float materialClearcoatGloss = 0;
+
+vec3 baseColor;
+float roughness;
+float metalness;
+
+
+//# Copyright Disney Enterprises, Inc.  All rights reserved.
+//#
+//# Licensed under the Apache License, Version 2.0 (the "License");
+//# you may not use this file except in compliance with the License
+//# and the following modification to it: Section 6 Trademarks.
+//# deleted and replaced with:
+//#
+//# 6. Trademarks. This License does not grant permission to use the
+//# trade names, trademarks, service marks, or product names of the
+//# Licensor and its affiliates, except as required for reproducing
+//# the content of the NOTICE file.
+//#
+//# You may obtain a copy of the License at
+//# http://www.apache.org/licenses/LICENSE-2.0
+
+
+const float PI = 3.14159265358979323846;
+
+float sqr(float x) { return x*x; }
+
+float SchlickFresnel(float u)
+{
+    float m = clamp(1-u, 0, 1);
+    float m2 = m*m;
+    return m2*m2*m; // pow(m,5)
+}
+
+float GTR1(float NdotH, float a)
+{
+    if (a >= 1) return 1/PI;
+    float a2 = a*a;
+    float t = 1 + (a2-1)*NdotH*NdotH;
+    return (a2-1) / (PI*log(a2)*t);
+}
+
+float GTR2(float NdotH, float a)
+{
+    float a2 = a*a;
+    float t = 1 + (a2-1)*NdotH*NdotH;
+    return a2 / (PI * t*t);
+}
+
+float GTR2_aniso(float NdotH, float HdotX, float HdotY, float ax, float ay)
+{
+    return 1 / (PI * ax*ay * sqr( sqr(HdotX/ax) + sqr(HdotY/ay) + NdotH*NdotH ));
+}
+
+float smithG_GGX(float NdotV, float alphaG)
+{
+    float a = alphaG*alphaG;
+    float b = NdotV*NdotV;
+    return 1 / (NdotV + sqrt(a + b - a*b));
+}
+
+float smithG_GGX_aniso(float NdotV, float VdotX, float VdotY, float ax, float ay)
+{
+    return 1 / (NdotV + sqrt( sqr(VdotX*ax) + sqr(VdotY*ay) + sqr(NdotV) ));
+}
+
+vec3 mon2lin(vec3 x)
+{
+    return vec3(pow(x[0], 2.2), pow(x[1], 2.2), pow(x[2], 2.2));
+}
+
+
+vec3 BRDF( vec3 L, vec3 V, vec3 N, vec3 X, vec3 Y )
+{
+    float NdotL = dot(N,L);
+    float NdotV = dot(N,V);
+    if (NdotL < 0 || NdotV < 0) return vec3(0);
+
+    vec3 H = normalize(L+V);
+    float NdotH = dot(N,H);
+    float LdotH = dot(L,H);
+
+    vec3 Cdlin = mon2lin(baseColor);
+    float Cdlum = .3*Cdlin[0] + .6*Cdlin[1]  + .1*Cdlin[2]; // luminance approx.
+
+    vec3 Ctint = Cdlum > 0 ? Cdlin/Cdlum : vec3(1); // normalize lum. to isolate hue+sat
+    vec3 Cspec0 = mix(materialSpecular*.08*mix(vec3(1), Ctint, materialSpecularTint), Cdlin, metalness);
+    vec3 Csheen = mix(vec3(1), Ctint, materialSheenTint);
+
+    // Diffuse fresnel - go from 1 at normal incidence to .5 at grazing
+    // and mix in diffuse retro-reflection based on roughness
+    float FL = SchlickFresnel(NdotL), FV = SchlickFresnel(NdotV);
+    float Fd90 = 0.5 + 2 * LdotH*LdotH * roughness;
+    float Fd = mix(1.0, Fd90, FL) * mix(1.0, Fd90, FV);
+
+    // Based on Hanrahan-Krueger brdf approximation of isotropic bssrdf
+    // 1.25 scale is used to (roughly) preserve albedo
+    // Fss90 used to "flatten" retroreflection based on roughness
+    float Fss90 = LdotH*LdotH*roughness;
+    float Fss = mix(1.0, Fss90, FL) * mix(1.0, Fss90, FV);
+    float ss = 1.25 * (Fss * (1 / (NdotL + NdotV) - .5) + .5);
+
+    // specular
+    float aspect = sqrt(1-materialAnisotropic*.9);
+    float ax = max(.001, sqr(roughness)/aspect);
+    float ay = max(.001, sqr(roughness)*aspect);
+    float Ds = GTR2_aniso(NdotH, dot(H, X), dot(H, Y), ax, ay);
+    float FH = SchlickFresnel(LdotH);
+    vec3 Fs = mix(Cspec0, vec3(1), FH);
+    float Gs;
+    Gs  = smithG_GGX_aniso(NdotL, dot(L, X), dot(L, Y), ax, ay);
+    Gs *= smithG_GGX_aniso(NdotV, dot(V, X), dot(V, Y), ax, ay);
+
+    // sheen
+    vec3 Fsheen = FH * materialSheen * Csheen;
+
+    // clearcoat (ior = 1.5 -> F0 = 0.04)
+    float Dr = GTR1(NdotH, mix(.1,.001,materialClearcoatGloss));
+    float Fr = mix(.04, 1.0, FH);
+    float Gr = smithG_GGX(NdotL, .25) * smithG_GGX(NdotV, .25);
+
+    return ((1/PI) * mix(Fd, ss, materialSubsurface)*Cdlin + Fsheen)
+        * (1-metalness)
+        + Gs*Fs*Ds + .25*materialClearcoat*Gr*Fr*Dr;
+}
+
+
+vec3 computeWithDirectionalLight( vec3 surfPt, vec3 incidentVector, vec3 viewVec, vec3 normal, vec3 tangent, vec3 bitangent )
+{
+    // evaluate the BRDF
+    vec3 b = max( BRDF( incidentVector, viewVec, normal, tangent, bitangent ), vec3(0.0) );
+
+    // multiply in the cosine factor
+    if (useNDotL != 0)
+        b *= dot( normal, incidentVector );
+
+    return b;
+}
+
+
+vec3 computeWithPointLight( vec3 surfPt, vec3 incidentVector, vec3 viewVec, vec3 normal, vec3 tangent, vec3 bitangent )
+{
+    // compute the point light vector
+    vec3 toLight = (incidentVector); // * lightDistanceFromCenter);// - surfPt;
+    float pointToLightDist = length( toLight );
+    toLight /= pointToLightDist;
+
+
+    // evaluate the BRDF
+    vec3 b = max( BRDF( toLight, viewVec, normal, tangent, bitangent ), vec3(0.0) );
+
+    // multiply in the cosine factor
+    if (useNDotL != 0)
+        b *= dot( normal, toLight );
+
+    // multiply in the falloff
+    b *= (1.0 / (pointToLightDist*pointToLightDist));
+
+    return b;
+}
+
+
+void main(void)
+{
+    // orthogonal vectors
+    //vec3 normal = normalize( worldSpaceVert.xyz );
+    vec3 normal = normalize( normalLocal );
+    vec3 tangent = normalize( cross( vec3(0,1,0), normal ) );
+    vec3 bitangent = normalize( cross( normal, tangent ) );
+
+
+    // calculate the viewing vector
+    vec3 viewVec = -normalize(eyeSpaceVert.xyz);
+    vec3 surfacePos = vec3(0); //normalize( worldSpaceVert.xyz );
+    //vec3 viewVec = vec3(0,0,1); // ortho mode
+    
+    if (useColorTexture != 0) {
+        baseColor = vec3(texture2D(colorMap, gl_TexCoord[0].st));
+    } else {
+        baseColor = materialBaseColor;
+    }
+        
+    if (useNormalTexture != 0) {
+        normal = normalize(texture2D(normalMap, gl_TexCoord[0].st).xyz * 2.0 - 1.0);
+    }    
+
+    if (useRoughnessTexture != 0) {
+        roughness = vec3(texture2D(roughnessMap, gl_TexCoord[0].st)).y;
+    } else {
+        roughness = materialRoughness;
+    }    
+        
+    if (useMetalnessTexture != 0) {
+        metalness = vec3(texture2D(metalnessMap, gl_TexCoord[0].st)).y;
+    } else {
+        metalness = materialMetallic;
+    }         
+
+    vec3 b = vec3(0);
+    if (light1Type != LIGHT_DISABLE) {
+        vec3 light1b = vec3(0);
+        if (light1Type == LIGHT_POINT) {
+            light1b += light1Color * computeWithPointLight(  surfacePos, light1LocalPointDir, viewVec, normal, tangent, bitangent );
+        } else {
+            light1b += light1Color * computeWithDirectionalLight( surfacePos, normalize(light1LocalPointDir), viewVec, normal, tangent, bitangent );
+        } 
+        light1b *= light1Brightness;
+        b += light1b;
+    }
+        
+    if (light2Type != 0) {
+        vec3 light2b = vec3(0);
+        if (light2Type == LIGHT_POINT) {
+            light2b += light2Color * computeWithPointLight(  surfacePos, light2LocalPointDir, viewVec, normal, tangent, bitangent );
+        } else {
+            light2b += light2Color * computeWithDirectionalLight( surfacePos, normalize(light2LocalPointDir), viewVec, normal, tangent, bitangent );
+        } 
+        light2b *= light2Brightness;
+        b += light2b;
+    } 
+            
+    if (light3Type != 0) {
+        vec3 light3b = vec3(0);
+        if (light3Type == LIGHT_POINT) {
+            light3b += light3Color * computeWithPointLight(  surfacePos, light3LocalPointDir, viewVec, normal, tangent, bitangent );
+        } else {
+            light3b += light3Color * computeWithDirectionalLight( surfacePos, normalize(light3LocalPointDir), viewVec, normal, tangent, bitangent );
+        } 
+        light3b *= light3Brightness;
+        b += light3b;
+    }
+            
+    if (light4Type != 0) {
+        vec3 light4b = vec3(0);
+        if (light4Type == LIGHT_POINT) {
+            light4b += light4Color * computeWithPointLight(  surfacePos, light4LocalPointDir, viewVec, normal, tangent, bitangent );
+        } else {
+            light4b += light4Color * computeWithDirectionalLight( surfacePos, normalize(light4LocalPointDir), viewVec, normal, tangent, bitangent );
+        } 
+        light4b *= light4Brightness;
+        b += light4b;
+    } 
+    
+    #ifdef light5
+        if (light5Type != 0) {
+            vec3 light5b = vec3(0);
+            if (light5Type == LIGHT_POINT) {
+                light5b += light5Color * computeWithPointLight(  surfacePos, light5LocalPointDir, viewVec, normal, tangent, bitangent );
+            } else {
+                light5b += light5Color * computeWithDirectionalLight( surfacePos, normalize(light5LocalPointDir), viewVec, normal, tangent, bitangent );
+            } 
+            light5b *= light5Brightness;
+            b += light5b;
+        }
+    #endif
+        
+        
+    //vec3 b = computeWithAreaLight( surfacePos, incidentVector, viewVec, normal, tangent, bitangent );
+
+    // exposure
+    b *= pow( 2.0, exposure );
+
+    // gamma
+    b = pow( b, vec3( 1.0 / gamma ) );
+
+    gl_FragColor = vec4( clamp( b, vec3(0.0), vec3(1.0) ), 1.0 );
+    //gl_FragColor = vec4( 1,1,1, 1.0 );
+}

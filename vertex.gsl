@@ -1,0 +1,122 @@
+#version 120
+
+const int LIGHT_DISABLE = 0;
+const int LIGHT_POINT = 1;
+const int LIGHT_DIR = 2;
+
+
+//uniform mat4 projectionMatrix;
+//uniform mat4 modelViewMatrix;
+uniform mat4 worldViewMatrix;
+uniform int useColorTexture;
+uniform int useNormalTexture;
+
+//lights
+uniform int light1Type = LIGHT_DISABLE;
+uniform int light2Type = LIGHT_DISABLE;
+uniform int light3Type = LIGHT_DISABLE;
+uniform int light4Type = LIGHT_DISABLE;
+uniform int light5Type = LIGHT_DISABLE;
+
+uniform vec3 light1WorldPointDir = vec3(0);
+uniform vec3 light2WorldPointDir = vec3(0);
+uniform vec3 light3WorldPointDir = vec3(0);
+uniform vec3 light4WorldPointDir = vec3(0);
+uniform vec3 light5WorldPointDir = vec3(0);
+
+//out vec4 worldSpaceVert;
+varying vec3 eyeSpaceVert;
+varying vec3 normalLocal;
+
+varying vec3 light1LocalPointDir;
+varying vec3 light2LocalPointDir;
+varying vec3 light3LocalPointDir;
+varying vec3 light4LocalPointDir;
+varying vec3 light5LocalPointDir;
+
+void main(void)
+{
+    // do the necessary transformations
+    vec4 P = gl_ModelViewMatrix * gl_Vertex;
+    vec4 light;
+    //worldSpaceVert = vec4(gl_Vertex.xyz,1);
+    eyeSpaceVert = vec3(gl_ModelViewMatrix * gl_Vertex);
+    normalLocal = mat3(gl_ModelViewMatrix) * gl_Normal;
+    
+    gl_Position = gl_ProjectionMatrix * vec4(eyeSpaceVert,1);
+    
+    if (light1Type != LIGHT_DISABLE) {
+        if (light1Type == LIGHT_POINT) {
+            light =  worldViewMatrix * vec4(light1WorldPointDir,1);
+            light1LocalPointDir = vec3(light - gl_ModelViewMatrix * gl_Vertex);
+        } else {
+            light =  worldViewMatrix * vec4(light1WorldPointDir,0);
+            light1LocalPointDir = vec3(light);
+        }
+    }
+
+    if (light2Type != LIGHT_DISABLE) {
+        if (light2Type == LIGHT_POINT) {
+            light =  worldViewMatrix * vec4(light2WorldPointDir,1);
+            light2LocalPointDir = vec3(light - gl_ModelViewMatrix * gl_Vertex);
+        } else {
+            light =  worldViewMatrix * vec4(light2WorldPointDir,0);
+            light2LocalPointDir = vec3(light);
+        }
+    }
+            
+    if (light3Type != LIGHT_DISABLE) {
+        if (light3Type == LIGHT_POINT) {
+            light =  worldViewMatrix * vec4(light3WorldPointDir,1);
+            light3LocalPointDir = vec3(light - gl_ModelViewMatrix * gl_Vertex);
+        } else {
+            light =  worldViewMatrix * vec4(light3WorldPointDir,0);
+            light3LocalPointDir = vec3(light);
+        }
+    }
+            
+    if (light4Type != LIGHT_DISABLE) {
+        if (light4Type == LIGHT_POINT) {
+            light =  worldViewMatrix * vec4(light4WorldPointDir,1);
+            light4LocalPointDir = vec3(light - gl_ModelViewMatrix * gl_Vertex);
+        } else {
+            light =  worldViewMatrix * vec4(light4WorldPointDir,0);
+            light4LocalPointDir = vec3(light);
+        }
+    }
+            
+    if (light5Type != LIGHT_DISABLE) {
+        if (light5Type == LIGHT_POINT) {
+            light =  worldViewMatrix * vec4(light5WorldPointDir,1);
+            light5LocalPointDir = vec3(light - gl_ModelViewMatrix * gl_Vertex);
+        } else {
+            light =  worldViewMatrix * vec4(light5WorldPointDir,0);
+            light5LocalPointDir = vec3(light);
+        }
+    }
+            
+    //if (useColorTexture != 0) {
+        gl_TexCoord[0] = gl_MultiTexCoord0;
+    //}
+
+    if (useNormalTexture != 0) {
+        vec3 n = normalize(gl_NormalMatrix * gl_Normal);
+        vec3 t = normalize(gl_NormalMatrix * gl_MultiTexCoord1.xyz);
+        vec3 b = cross(n, t) * gl_MultiTexCoord1.w;
+
+        mat3 tbnMatrix = mat3(t.x, b.x, n.x,
+                              t.y, b.y, n.y,
+                              t.z, b.z, n.z);
+
+        eyeSpaceVert = tbnMatrix * eyeSpaceVert;
+        normalLocal = tbnMatrix * normalLocal;
+        light1LocalPointDir = tbnMatrix * light1LocalPointDir;
+        light2LocalPointDir = tbnMatrix * light2LocalPointDir;
+        light3LocalPointDir = tbnMatrix * light3LocalPointDir;
+        light4LocalPointDir = tbnMatrix * light4LocalPointDir;
+        light5LocalPointDir = tbnMatrix * light5LocalPointDir;
+
+        
+    }
+
+}
